@@ -447,7 +447,7 @@ class App:
         self.root.geometry("390x520")
         self.root.minsize(360, 470)
         try:
-            self.root.iconphoto(True, self._load_icon())
+            self._apply_icon(self.root)
         except Exception:
             pass
 
@@ -534,7 +534,15 @@ class App:
         icon_path = os.path.join(HERE, "assets", "appicon.png")
         if os.path.exists(icon_path):
             return tk.PhotoImage(file=icon_path)
-        raise FileNotFoundError("appicon.png 不存在")
+        return None
+
+    def _apply_icon(self, win):
+        try:
+            img = self._load_icon()
+            if img is not None:
+                win.iconphoto(True, img)
+        except Exception:
+            pass
 
     # ====================== 配置 ======================
     def load_config(self):
@@ -645,7 +653,7 @@ class App:
         dlg.grab_set()
         dlg.geometry("380x280")
         try:
-            dlg.iconphoto(True, self._load_icon())
+            self._apply_icon(dlg)
         except Exception:
             pass
 
@@ -749,7 +757,7 @@ class App:
         # 窗格更高，输入框更高
         dlg.geometry("430x430")
         try:
-            dlg.iconphoto(True, self._load_icon())
+            self._apply_icon(dlg)
         except Exception:
             pass
 
@@ -887,7 +895,7 @@ class App:
         dlg.grab_set()
         dlg.geometry("420x160")
         try:
-            dlg.iconphoto(True, self._load_icon())
+            self._apply_icon(dlg)
         except Exception:
             pass
 
@@ -952,7 +960,7 @@ class App:
         dlg.grab_set()
         dlg.geometry("460x380")
         try:
-            dlg.iconphoto(True, self._load_icon())
+            self._apply_icon(dlg)
         except Exception:
             pass
 
@@ -1165,7 +1173,7 @@ class App:
         dlg.grab_set()
         dlg.geometry("460x420")
         try:
-            dlg.iconphoto(True, self._load_icon())
+            self._apply_icon(dlg)
         except Exception:
             pass
 
@@ -1347,7 +1355,7 @@ class App:
         W = 520
         dlg.minsize(W, 200)
         try:
-            dlg.iconphoto(True, self._load_icon())
+            self._apply_icon(dlg)
         except Exception:
             pass
 
@@ -2066,7 +2074,7 @@ class App:
         win.title("任务日志查看")
         win.transient(self.root)
         try:
-            win.iconphoto(True, self._load_icon())
+            self._apply_icon(win)
         except Exception:
             pass
         win.geometry("680x560")

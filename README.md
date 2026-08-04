@@ -45,13 +45,12 @@ python3 lanzou_uploader.py
 - `requests` —— HTTP 请求
 - `requests-toolbelt` —— 分块上传（`MultipartEncoder`）
 - `tkinter` —— Python 标准库自带（GUI），无需额外安装
-- `Pillow` —— **仅** `gen_icon.py`（图标生成脚本）需要，运行主程序不需要
 
 ---
 
 ## 配置说明（config.json）
 
-配置文件位于程序目录下，已被 `.gitignore` 忽略，**不会提交到仓库**。字段含义：
+配置文件位于程序目录下，字段含义：
 
 | 字段 | 说明 | 默认值 |
 |------|------|--------|
@@ -95,29 +94,6 @@ python3 lanzou_uploader.py
 | Linux | 内置 Tk 列表窗口 | 同上 |
 
 > 注：tkinter 标准文件对话框无法在单个原生框内同时多选文件与文件夹，故 Windows / Linux 保留列表窗口方案；macOS 通过系统原生 API 实现真正的单次混合多选。
-
----
-
-## 项目结构
-
-```
-lanzou_uploader/
-├── lanzou_uploader.py   # 主程序（GUI + 上传逻辑）
-├── gen_icon.py          # 图标生成脚本（需 Pillow，仅开发用）
-├── assets/              # 图标与资源（appicon.png 等）
-├── config.json          # 本机配置（自动生成，已被 .gitignore 忽略）
-├── requirements.txt     # Python 依赖
-├── .gitignore
-├── logs/                # 运行时生成的上传任务日志（已被忽略）
-└── README.md
-```
-
-### 重新生成图标（可选，开发用）
-
-```bash
-pip install Pillow
-python3 gen_icon.py     # 生成 assets/AppIcon.iconset 与 assets/app.icns
-```
 
 ---
 
