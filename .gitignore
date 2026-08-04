@@ -1,0 +1,17 @@
+# ===== 配置文件（含 Cookie 等敏感信息，禁止提交）=====
+config.json
+
+# ===== Python 运行时 / 虚拟环境 =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ===== 运行产物 =====
+logs/
+*.app
+.DS_Store
+Thumbs.db
+Desktop.ini
