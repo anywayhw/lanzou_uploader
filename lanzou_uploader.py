@@ -58,7 +58,7 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # 程序版本号（与 GitHub Release 的 tag 对应，如 v1.1.0）
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # 自动更新相关常量
 UPDATE_REPO = "anywayhw/lanzou_uploader"          # 仓库 owner/name

@@ -97,6 +97,29 @@ python3 lanzou_uploader.py
 
 ---
 
+## 自动构建与发布（GitHub Actions）
+
+仓库已配置 `.github/workflows/build-release.yml`：推送**版本标签**（形如 `v1.2.0`）即自动构建并发布 Release。
+
+- **构建矩阵**：`windows-latest` 产出单文件 `LanzouUploader.exe`（`--onefile`）；`macos-latest` 产出 `LanzouUploader.app.zip`（`--onedir` + `ditto`）。
+- **发布**：`release` 作业用 GitHub CLI（`gh release create`）把两个产物上传到同名 Release，`releases/latest` 同时含 `.exe` 与 `.app.zip`，确保各平台自动更新都能取到对应资源。
+- **自动更新**：程序每次启动静默检查 `releases/latest`，发现更高版本时后台下载，下次启动替换自身（Windows 替换 exe，macOS 替换 .app）并重启，全程无提示。
+
+### 发布一个新版本
+
+1. 修改 `lanzou_uploader.py` 顶部的 `VERSION` 为新版本号（需与标签一致，否则会陷入重复更新）。
+2. 提交并推送：`git commit -am "release: v1.2.0"` → `git push origin main`。
+3. 打标签并推送触发 Actions：
+   ```bash
+   git tag v1.2.0
+   git push origin v1.2.0
+   ```
+4. 等待 Actions 跑完，GitHub 自动创建 `v1.2.0` Release 并附上两个平台的产物。
+
+> 注：GitHub Actions 出的 macOS `.app` 未签名，首次运行需右键打开或在终端 `xattr -dr com.apple.quarantine LanzouUploader.app`；Windows `.exe` 未签名会触发 SmartScreen，选择「仍要运行」即可。
+
+---
+
 ## 免责声明
 
 本工具为个人学习 / 备份用途的第三方工具，与蓝奏云官方无关。蓝奏云接口可能随官网调整而变化，如遇上传失败请检查接口或等待适配。请妥善保管 `config.json` 中的 Cookie，勿泄露给他人。
