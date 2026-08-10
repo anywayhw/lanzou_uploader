@@ -1,8 +1,18 @@
 # 蓝奏云批量上传工具（GUI）
 
+<p align="center">
+  <img src="assets/appicon.png" width="128" alt="应用图标">
+</p>
+
 一个用 Python + tkinter 编写的蓝奏云批量上传桌面工具。支持选择**一个或多个文件/文件夹**一次性上传到指定云盘目录，并保持本地目录结构；内置断点续传、失败自动重试、上传前校验、按目录分组限速等功能。
 
 > ⚠️ 本工具仅用于个人合法备份与文件管理，请遵守蓝奏云用户协议，勿用于违规用途。
+
+---
+
+## 界面预览
+
+![主界面](screenshots/main.png)
 
 ---
 
@@ -22,14 +32,20 @@
 
 ---
 
-## 环境要求
-
-- Python 3.8+（GUI 使用内置 `tkinter`，需完整版 Python；若提示缺 tkinter，请改用系统自带 Python 或安装 `python3-tk`）。
-- 网络可访问蓝奏云（`lanzou.com`）。
-
----
-
 ## 安装与运行
+
+### 方式一：直接下载已编译版本（推荐）
+
+无需安装 Python 环境，下载对应平台的成品即可使用：
+
+| 平台 | 下载链接 | 说明 |
+|------|----------|------|
+| macOS | [LanzouUploader.app.zip](https://github.com/anywayhw/lanzou_uploader/releases/download/v1.2.0/LanzouUploader.app.zip) | 解压后打开即可；未签名，首次需右键打开或终端执行 `xattr -dr com.apple.quarantine LanzouUploader.app` 绕过 Gatekeeper |
+| Windows | [LanzouUploader.exe](https://github.com/anywayhw/lanzou_uploader/releases/download/v1.2.0/LanzouUploader.exe) | 双击运行；未签名会触发 SmartScreen，选择「仍要运行」即可 |
+
+> 程序内置**自动更新**：每次启动静默检查最新 Release，发现新版本时后台下载，下次启动自动替换并重启，全程无提示（详见下文「自动更新」）。
+
+### 方式二：从源码运行（需 Python 环境）
 
 ```bash
 # 1. 安装依赖
@@ -97,26 +113,15 @@ python3 lanzou_uploader.py
 
 ---
 
-## 自动构建与发布（GitHub Actions）
+## 自动更新
 
-仓库已配置 `.github/workflows/build-release.yml`：推送**版本标签**（形如 `v1.2.0`）即自动构建并发布 Release。
+程序每次启动后会**静默**检查 GitHub 上的最新 Release（`releases/latest`）：
 
-- **构建矩阵**：`windows-latest` 产出单文件 `LanzouUploader.exe`（`--onefile`）；`macos-latest` 产出 `LanzouUploader.app.zip`（`--onedir` + `ditto`）。
-- **发布**：`release` 作业用 GitHub CLI（`gh release create`）把两个产物上传到同名 Release，`releases/latest` 同时含 `.exe` 与 `.app.zip`，确保各平台自动更新都能取到对应资源。
-- **自动更新**：程序每次启动静默检查 `releases/latest`，发现更高版本时后台下载，下次启动替换自身（Windows 替换 exe，macOS 替换 .app）并重启，全程无提示。
+- 若检测到更高版本，会在后台自动下载对应平台的更新包；
+- 下次启动时自动替换旧文件（Windows 替换 `exe`，macOS 替换 `.app`）并重启；
+- 整个检查、下载、替换过程**无任何提示**，即使网络不可达也会静默跳过，不影响正常使用。
 
-### 发布一个新版本
-
-1. 修改 `lanzou_uploader.py` 顶部的 `VERSION` 为新版本号（需与标签一致，否则会陷入重复更新）。
-2. 提交并推送：`git commit -am "release: v1.2.0"` → `git push origin main`。
-3. 打标签并推送触发 Actions：
-   ```bash
-   git tag v1.2.0
-   git push origin v1.2.0
-   ```
-4. 等待 Actions 跑完，GitHub 自动创建 `v1.2.0` Release 并附上两个平台的产物。
-
-> 注：GitHub Actions 出的 macOS `.app` 未签名，首次运行需右键打开或在终端 `xattr -dr com.apple.quarantine LanzouUploader.app`；Windows `.exe` 未签名会触发 SmartScreen，选择「仍要运行」即可。
+> 各平台下载文件名固定：macOS 为 `LanzouUploader.app.zip`，Windows 为 `LanzouUploader.exe`，与 Release 中的资产名一致。
 
 ---
 
