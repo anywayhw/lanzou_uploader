@@ -35,6 +35,8 @@ import random
 import mimetypes
 import threading
 import subprocess
+import shutil
+import zipfile
 from collections import deque, namedtuple, OrderedDict
 from datetime import datetime
 
@@ -54,6 +56,13 @@ except ImportError:
     sys.exit("错误: 缺少依赖 requests-toolbelt，请先执行: pip install requests-toolbelt")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# 程序版本号（与 GitHub Release 的 tag 对应，如 v1.1.0）
+VERSION = "1.1.0"
+
+# 自动更新相关常量
+UPDATE_REPO = "anywayhw/lanzou_uploader"          # 仓库 owner/name
+UPDATE_API = f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest"
 
 
 def _get_data_dir():
@@ -463,7 +472,7 @@ class NullTaskLog:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("蓝奏云批量上传")
+        self.root.title(f"蓝奏云批量上传 v{VERSION}")
         self.root.geometry("390x520")
         self.root.minsize(360, 470)
         try:
@@ -2523,9 +2532,241 @@ def rel_parent_parts(rel):
     return d.split(os.sep)
 
 
+# ====================== 自动更新（静默） ======================
+# 行为说明：
+#   - 仅在「打包后」(PyInstaller .app / .exe) 运行；源码运行不触发，避免干扰开发。
+#   - 每次启动先尝试应用「上次已下载好的待定更新」，若命中则静默替换自身并重启。
+#   - 主界面显示后，后台线程静默访问 GitHub 检查最新 Release；发现更新的平台资源则
+#     下载并暂存，写入待定标记，下次启动应用。
+#   - 全程吞掉所有异常，网络不通 / 无新版本 / 任何失败都不提示用户。
+
+
+def _parse_version(tag):
+    """把 'v1.2.3' / '1.2.3' 解析成可比较的元祖 (1, 2, 3)；无法解析返回 (0,)。"""
+    try:
+        s = str(tag).lstrip("vV").strip()
+        parts = []
+        for x in s.split("."):
+            x = x.strip()
+            if x.isdigit():
+                parts.append(int(x))
+            elif x and x[0].isdigit():
+                parts.append(int("".join(ch for ch in x if ch.isdigit())))
+            else:
+                break
+        return tuple(parts) if parts else (0,)
+    except Exception:
+        return (0,)
+
+
+def _update_dir():
+    """返回（并创建）更新暂存目录，位于用户应用数据目录下。"""
+    d = os.path.join(_get_data_dir(), "update")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
+
+def _app_bundle_path():
+    """打包后的 .app 路径（macOS）。sys.executable 形如
+    .../LanzouUploader.app/Contents/MacOS/LanzouUploader，上溯三级即 .app 目录。"""
+    exe = sys.executable
+    return os.path.dirname(os.path.dirname(os.path.dirname(exe)))
+
+
+def _pick_asset(assets):
+    """按当前平台从 release 资源中挑选要下载的文件：
+    - macOS  -> 名称以 .app.zip 结尾
+    - Windows -> 优先 .exe，其次 .zip
+    - 其他    -> 不支持自动更新，返回 None
+    """
+    if sys.platform == "darwin":
+        cands = [a for a in assets if str(a.get("name", "")).endswith(".app.zip")]
+        return cands[0] if cands else None
+    if sys.platform == "win32":
+        cands = [a for a in assets if str(a.get("name", "")).endswith(".exe")]
+        if not cands:
+            cands = [a for a in assets if str(a.get("name", "")).endswith(".zip")]
+        return cands[0] if cands else None
+    return None
+
+
+def check_for_update():
+    """后台静默检查更新。有任何异常 / 网络不通 / 已最新 都静默返回。"""
+    if not getattr(sys, "frozen", False):
+        return  # 仅打包后运行
+    try:
+        udir = _update_dir()
+        pending_path = os.path.join(udir, "pending.json")
+        if os.path.exists(pending_path):
+            return  # 已有待应用更新，无需重复下载
+
+        headers = {
+            "User-Agent": "lanzou-uploader-updater",
+            "Accept": "application/vnd.github+json",
+        }
+        resp = requests.get(UPDATE_API, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return
+        data = resp.json()
+        tag = data.get("tag_name", "")
+        if not tag:
+            return
+        if _parse_version(tag) <= _parse_version(VERSION):
+            return  # 已是最新
+
+        asset = _pick_asset(data.get("assets", []))
+        if not asset:
+            return
+
+        name = asset["name"]
+        download_url = asset["browser_download_url"]
+        local_path = os.path.join(udir, "download", name)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+        with requests.get(download_url, headers=headers, timeout=120, stream=True) as r:
+            if r.status_code != 200:
+                return
+            with open(local_path, "wb") as f:
+                for chunk in r.iter_content(1024 * 64):
+                    if chunk:
+                        f.write(chunk)
+
+        # 若为压缩包，解压出真正的 .app / .exe
+        staged_path = None
+        if name.endswith(".zip"):
+            extract_dir = os.path.join(udir, "staged")
+            if os.path.isdir(extract_dir):
+                shutil.rmtree(extract_dir, ignore_errors=True)
+            os.makedirs(extract_dir, exist_ok=True)
+            with zipfile.ZipFile(local_path) as zf:
+                zf.extractall(extract_dir)
+            target_ext = ".app" if sys.platform == "darwin" else ".exe"
+            for root, dirs, files in os.walk(extract_dir):
+                if staged_path:
+                    break
+                for f in files:
+                    if f.endswith(target_ext):
+                        staged_path = os.path.join(root, f)
+                        break
+                # 也允许按目录发现 .app（macOS 的 .app 是目录）
+                for d in dirs:
+                    if d.endswith(".app"):
+                        staged_path = os.path.join(root, d)
+                        break
+                if staged_path:
+                    break
+        else:
+            staged_path = local_path
+
+        if not staged_path or not os.path.exists(staged_path):
+            return
+
+        pending = {
+            "staged_path": staged_path,
+            "current_exe": sys.executable,
+            "kind": "app" if sys.platform == "darwin" else "exe",
+            "version": tag,
+        }
+        with open(pending_path, "w", encoding="utf-8") as f:
+            json.dump(pending, f, ensure_ascii=False)
+    except Exception:
+        return
+
+
+def apply_pending_update():
+    """启动最早期调用。若存在待应用更新，则静默替换自身并重启，随后退出。
+    无待应用更新或任何异常时静默返回（不阻断正常启动）。"""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        udir = _update_dir()
+        pending_path = os.path.join(udir, "pending.json")
+        if not os.path.exists(pending_path):
+            # 顺手清理上次更新遗留的旧 exe（Windows）
+            try:
+                old = sys.executable + ".old"
+                if os.path.exists(old):
+                    os.remove(old)
+            except Exception:
+                pass
+            return
+
+        with open(pending_path, "r", encoding="utf-8") as f:
+            pending = json.load(f)
+        staged = pending.get("staged_path")
+        kind = pending.get("kind")
+        current_exe = pending.get("current_exe") or sys.executable
+        if not staged or not os.path.exists(staged):
+            try:
+                os.remove(pending_path)
+            except Exception:
+                pass
+            return
+
+        if kind == "app" and sys.platform == "darwin":
+            current_app = _app_bundle_path()
+            if not current_app or not os.path.exists(current_app):
+                os.remove(pending_path)
+                return
+            backup = os.path.join(udir, "old_app_backup")
+            if os.path.isdir(backup):
+                shutil.rmtree(backup, ignore_errors=True)
+            # 当前 app 正在运行，可安全移走；再把新 app 放到位
+            shutil.move(current_app, backup)
+            shutil.move(staged, current_app)
+            try:
+                os.remove(pending_path)
+            except Exception:
+                pass
+            subprocess.Popen(["open", current_app])
+            os._exit(0)
+
+        elif kind == "exe" and sys.platform == "win32":
+            old = current_exe + ".old"
+            try:
+                if os.path.exists(old):
+                    os.remove(old)
+            except Exception:
+                pass
+            try:
+                # 运行中的 exe 允许改名，借此释放原路径
+                os.rename(current_exe, old)
+            except Exception:
+                os.remove(pending_path)
+                return
+            try:
+                shutil.move(staged, current_exe)
+            except Exception:
+                # 失败则回滚
+                try:
+                    os.rename(old, current_exe)
+                except Exception:
+                    pass
+                os.remove(pending_path)
+                return
+            try:
+                os.remove(pending_path)
+            except Exception:
+                pass
+            subprocess.Popen([current_exe])
+            os._exit(0)
+
+        else:
+            os.remove(pending_path)
+    except Exception:
+        return
+
+
 def main():
+    # 启动最先：静默应用上次已下载好的更新（命中则替换自身并重启，随后退出）
+    apply_pending_update()
     root = tk.Tk()
     App(root)
+    # 主界面显示后，后台静默检查更新
+    threading.Thread(target=check_for_update, daemon=True).start()
     root.mainloop()
 
 
