@@ -12,6 +12,10 @@ env/
 # ===== 运行产物 =====
 logs/
 *.app
+*.app.zip
+build/
+dist/
+*.spec
 .DS_Store
 Thumbs.db
 Desktop.ini

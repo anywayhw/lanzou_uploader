@@ -54,8 +54,28 @@ except ImportError:
     sys.exit("错误: 缺少依赖 requests-toolbelt，请先执行: pip install requests-toolbelt")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(HERE, "config.json")
-LOGS_DIR = os.path.join(HERE, "logs")
+
+
+def _get_data_dir():
+    """返回程序持久化数据目录：
+    - 未打包（源码运行）：程序所在目录（兼容现有行为）。
+    - 打包后（PyInstaller .app / .exe）：系统用户应用数据目录，
+      避免写入只读的 bundle / Program Files 导致 PermissionError。
+    """
+    if getattr(sys, "frozen", False):
+        if sys.platform == "darwin":
+            base = os.path.expanduser("~/Library/Application Support")
+        elif sys.platform == "win32":
+            base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        else:
+            base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        return os.path.join(base, "lanzou_uploader")
+    return HERE
+
+
+DATA_DIR = _get_data_dir()
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+LOGS_DIR = os.path.join(DATA_DIR, "logs")
 
 MAX_DEPTH = 4                      # 蓝奏云目录层级上限(根目录算第 0 层)
 MAX_FILE_BYTES = 100 * 1024 * 1024  # 单文件大小上限 100MB
@@ -531,9 +551,20 @@ class App:
 
     # ====================== 图标 ======================
     def _load_icon(self):
-        icon_path = os.path.join(HERE, "assets", "appicon.png")
-        if os.path.exists(icon_path):
-            return tk.PhotoImage(file=icon_path)
+        """加载窗口图标。兼容源码运行与 PyInstaller 打包后的多种路径布局。"""
+        candidates = []
+        if getattr(sys, "frozen", False):
+            # PyInstaller 运行时会设置 sys._MEIPASS（资源根目录）
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                candidates.append(os.path.join(meipass, "assets", "appicon.png"))
+            # onedir .app 兜底：HERE = Contents/MacOS，assets 实际在 Contents/Resources
+            candidates.append(os.path.join(os.path.dirname(HERE), "Resources", "assets", "appicon.png"))
+        # 源码运行时，图标就在程序同目录的 assets/ 下
+        candidates.append(os.path.join(HERE, "assets", "appicon.png"))
+        for p in candidates:
+            if os.path.exists(p):
+                return tk.PhotoImage(file=p)
         return None
 
     def _apply_icon(self, win):
@@ -574,6 +605,7 @@ class App:
             self.save_config()
 
     def save_config(self):
+        os.makedirs(DATA_DIR, exist_ok=True)
         self.config["cookie"] = self.config.get("cookie", "")
         self.config["ignore_hidden"] = bool(self.ignore_hidden_var.get())
         self.config["auto_fix_name"] = bool(self.auto_fix_name_var.get())
