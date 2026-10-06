@@ -58,7 +58,7 @@ except ImportError:
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # 程序版本号（与 GitHub Release 的 tag 对应，如 v1.1.0）
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 # 自动更新相关常量
 UPDATE_REPO = "anywayhw/lanzou_uploader"          # 仓库 owner/name
@@ -91,16 +91,28 @@ MAX_FILE_BYTES = 100 * 1024 * 1024  # 单文件大小上限 100MB
 HIDDEN_IGNORE = {".DS_Store", "Thumbs.db", "Desktop.ini", ".localized", "__MACOSX"}
 
 # ===== 文件名 / 目录名 规范（蓝奏云）=====
-# 允许上传的文件后缀（小写，不含点）。来源：官方/社区一致清单(单文件≤100MB 前提下)。
-# 不在此清单的后缀视为「不允许的文件类型」（上传/分享会被拒或异常），如 .pps/.swf/无后缀等。
-ALLOWED_EXT = {
-    "doc", "docx", "zip", "rar", "apk", "ipa", "txt", "exe", "7z", "e", "z", "ct", "ke",
-    "cetrainer", "db", "tar", "pdf", "w3x", "epub", "mobi", "azw", "azw3", "osk", "osz",
-    "xpa", "cpk", "lua", "jar", "dmg", "ppt", "pptx", "xls", "xlsx", "mp3", "iso", "img",
-    "gho", "ttf", "ttc", "txf", "dwg", "bat", "imazingapp", "dll", "crx", "xapk", "conf",
-    "deb", "rp", "rpm", "rplib", "mobileconfig", "appimage", "lolgezi", "flac",
+# 蓝奏云采用「黑名单制」：仅拦截少数特定后缀，其余类型全部允许上传（单文件 ≤ 100MB 前提下）。
+# 因此这里维护「被拦截后缀黑名单」BLOCKED_EXT，而非「允许白名单」。
+# 实际会被拦截/需绕过的类型主要有两类：
+#   1) 分卷压缩后缀：.001/.002/.part1/.z01/.r00 等（被识别为「非法分卷」直接失败）；
+#   2) 少数脚本/系统类后缀：.bat/.cmd/.vbs/.js/.jar/.chm 等（网页端分享受限制）。
+# 不在黑名单的后缀一律视为允许（含 png/jpg/mp4/mp3/zip/exe/dll 等常见类型），无后缀也允许。
+BLOCKED_EXT = {
+    # —— 分卷压缩类（固定常见名）——
+    "001", "002", "003", "004", "005", "006", "007", "008", "009", "010",
+    "z01", "z02", "z03", "z04", "z05",
+    "r00", "r01", "r02",
+    "part1", "part2", "part3", "part4", "part5",
+    "part01", "part02", "part03",
+    # —— 脚本 / 系统 / 危险类 ——
+    "bat", "cmd", "com", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta",
+    "scr", "pif", "cpl", "msc", "msi", "msp", "reg", "inf", "ins", "isp",
+    "lnk", "url", "shs", "shb", "vb", "ps1", "jar", "ade", "adp", "chm",
+    "ocx", "mda", "mdb", "mde", "mdt", "mdw", "wsc", "torrent",
 }
-BAD_EXT_REPLACE = "zip"             # 「不允许的文件类型」自动改成的扩展名（通用且服务端允许）
+# 纯数字后缀（.001 ~ .9999）也视为分卷压缩，一并拦截（覆盖 .011/.123 等任意数字分卷）。
+_VOLUME_RE = re.compile(r"^\d{1,4}$")
+BAD_EXT_REPLACE = "zip"             # 「被拦截的文件类型」自动改成的扩展名（通用且服务端允许）
 # 文件名 / 目录名安全长度上限（过长会导致后缀丢失/被服务端拒绝，见 lanzou-api 回收站过长丢后缀 bug）
 MAX_FILENAME_LEN = 200
 MAX_DIRNAME_LEN = 100
@@ -249,9 +261,17 @@ def sanitize_rel(rel):
 
 
 def ext_allowed(rel):
-    """该文件后缀是否在蓝奏云允许上传清单内（无后缀也视为不允许）。"""
+    """该文件后缀是否允许上传（蓝奏云黑名单制：不在黑名单即允许）。
+    返回 True 表示允许；False 表示后缀被蓝奏云拦截（需追加可用扩展名绕过）。
+    无后缀视为允许。"""
     ext = os.path.splitext(rel)[1].lower().lstrip(".")
-    return ext in ALLOWED_EXT
+    if not ext:
+        return True
+    if ext in BLOCKED_EXT:
+        return False
+    if _VOLUME_RE.match(ext):
+        return False
+    return True
 
 
 Item = namedtuple("Item", ["id", "name"])
@@ -1342,7 +1362,7 @@ class App:
         返回 (oversize, bad_name, bad_type)：
           oversize: [rel, ...]                      单文件 > 100MB
           bad_name: [(orig_rel, clean_rel, reason)] 文件名/目录名含非法字符或超长(需清洗)
-          bad_type: [rel, ...]                      后缀不在允许上传清单
+          bad_type: [rel, ...]                      后缀被蓝奏云拦截（分卷压缩/受限脚本类）
         """
         oversize, bad_name, bad_type = [], [], []
         for f in files:
@@ -1381,8 +1401,8 @@ class App:
             ))
         if bad_type:
             buckets.append((
-                "bad_type", "⛔ 文件类型/后缀不在允许上传清单", len(bad_type),
-                [("fix", f"自动修复：原后缀后追加可用扩展名（保留原后缀，如 123.pps → 123.pps.{BAD_EXT_REPLACE}）"),
+                "bad_type", "⛔ 文件后缀被蓝奏云拦截（分卷压缩或受限脚本类）", len(bad_type),
+                [("fix", f"自动修复：原后缀后追加 .{BAD_EXT_REPLACE}（保留原后缀，便于识别与下载后还原），如 file.7z.001 → file.7z.001.{BAD_EXT_REPLACE}"),
                  ("ignore", "忽略：这些文件不上传")],
                 [(r, r) for r in bad_type],
             ))
